@@ -4,6 +4,7 @@ from google.cloud import storage
 from datetime import datetime
 from os import path
 from discord_webhook import DiscordWebhook, DiscordEmbed
+import subprocess
 
 
 @click.command()
@@ -29,7 +30,11 @@ from discord_webhook import DiscordWebhook, DiscordEmbed
     default=True,
     help=
     'Choose if the bot should send webhook messages when the backup succeeds')
-def backup(file, webhook, rename, bucket, error_ping, job_name, log_success):
+@click.option('--prebackup',
+              default=None,
+              help='Command to run before backing up')
+def backup(file, webhook, rename, bucket, error_ping, job_name, log_success,
+           prebackup):
     """Simple backup tool"""
     try:
         if rename == None:
@@ -39,6 +44,14 @@ def backup(file, webhook, rename, bucket, error_ping, job_name, log_success):
             name = rename
         d = datetime.now()
         name = d.strftime(name)
+
+        if prebackup != None:
+            subprocess.run([prebackup],
+                           shell=True,
+                           check=True,
+                           capture_output=True,
+                           text=True)
+
         storage_client = storage.Client()
         gcpbucket = storage_client.bucket(bucket)
         blob = gcpbucket.blob(name)
@@ -67,11 +80,14 @@ def backup(file, webhook, rename, bucket, error_ping, job_name, log_success):
             webhook = DiscordWebhook(url=webhook,
                                      content="<@" + error_ping +
                                      ">" if error_ping != None else "")
+            em = str(e)
+            if isinstance(e, subprocess.CalledProcessError):
+                em = e.stderr if e.stderr else "Failed to capture stderr of prebackup command"
             embed = DiscordEmbed(
                 title='Error',
                 description='An error has occured while attempting to backup '
                 + (job_name if job_name != None else "`" + file + "`") +
-                "\n```\n" + str(e) + "```",
+                "\n```\n" + em + "```",
                 color=0xff5858)
             webhook.add_embed(embed)
             response = webhook.execute()
